@@ -1,93 +1,266 @@
-
+# encoding: utf-8
 from __future__ import print_function
 
-from collections import defaultdict
 from PIL import ImageOps, ImageChops
-from enum import Enum, unique
+from collections import defaultdict, OrderedDict
+from copy import copy
+from enum import unique
+from functools import wraps
 
-try:
-    from functools import reduce
-except ImportError:
-    pass
+from clu.enums import AliasingEnum, alias
+from clu.mathematics import Σ
+from clu.predicates import tuplize
+from clu.typology import string_types
 
+from instakit.abc import Fork, NOOp, Sequence, MutableSequence
+from instakit.utils.gcr import BasicGCR
 from instakit.utils.mode import Mode
+from instakit.processors.adjust import AutoContrast
+from instakit.exporting import Exporter
 
-class Pipe(list):
-    """ A linear pipeline of processors to be applied en masse.
-        Derived from an ImageKit class:
-        imagekit.processors.base.ProcessorPipeline
+exporter = Exporter(path=__file__)
+export = exporter.decorator()
+
+if not hasattr(__builtins__, 'cmp'):
+    def cmp(a, b):
+        return (a > b) - (a < b)
+
+@export
+class Pipe(Sequence):
+    
+    """ A static linear pipeline of processors to be applied en masse.
+        Derived from a `pilkit` class:
+            `pilkit.processors.base.ProcessorPipeline`
     """
+    __slots__ = tuplize('tuple')
+    
+    @classmethod
+    def base_type(cls):
+        return tuple
+    
+    @wraps(tuple.__init__)
+    def __init__(self, *args):
+        self.tuple = tuplize(*args)
+    
+    def iterate(self):
+        yield from self.tuple
+    
+    @wraps(tuple.__len__)
+    def __len__(self):
+        return len(self.tuple)
+    
+    @wraps(tuple.__contains__)
+    def __contains__(self, value):
+        return value in self.tuple
+    
+    @wraps(tuple.__getitem__)
+    def __getitem__(self, idx):
+        return self.tuple[idx]
+    
+    @wraps(tuple.index)
+    def index(self, value):
+        return self.tuple.index(value)
+    
+    def last(self):
+        if not bool(self):
+            raise IndexError("pipe is empty")
+        return self.tuple[-1]
+    
     def process(self, image):
-        for p in self:
-            image = p.process(image)
+        for processor in self.iterate():
+            image = processor.process(image)
         return image
+    
+    def __eq__(self, other):
+        if not isinstance(other, (type(self), type(self).base_type())):
+            return NotImplemented
+        return super(Pipe, self).__eq__(other)
 
-class NOOp(object):
-    """ A no-op processor. """
-    def process(self, image):
-        return image
-
-class ChannelFork(defaultdict):
-    """ A processor wrapper that, for each image channel:
-        - applies a channel-specific processor, or
-        - applies a default processor.
-        
-        * Ex. 1: apply the Atkinson ditherer to each of an images' channels:
-        >>> from instakit.utils.pipeline import ChannelFork
-        >>> from instakit.processors.halftone import Atkinson
-        >>> ChannelFork(Atkinson).process(my_image)
-        
-        * Ex. 2: apply the Atkinson ditherer to only one channel:
-        >>> from instakit.utils.pipeline import ChannelFork
-        >>> from instakit.processors.halftone import Atkinson
-        >>> cfork = ChannelFork(None)
-        >>> cfork['G'] = Atkinson()
-        >>> cfork.process(my_image)
+@export
+class Pipeline(MutableSequence):
+    
+    """ A mutable linear pipeline of processors to be applied en masse.
+        Derived from a `pilkit` class:
+            `pilkit.processors.base.ProcessorPipeline`
     """
+    __slots__ = tuplize('list')
     
-    default_mode = 'RGB'
+    @classmethod
+    def base_type(cls):
+        return list
     
-    def __init__(self, default_factory, *args, **kwargs):
-        if default_factory is None:
-            default_factory = NOOp
-        if not callable(default_factory):
-            raise AttributeError(
-                "ChannelFork() requires a callable default_factory")
-        
-        self.channels = Mode.for_string(
-                        kwargs.pop('mode', self.default_mode))
-        
-        super(ChannelFork, self).__init__(default_factory, *args, **kwargs)
+    @wraps(list.__init__)
+    def __init__(self, *args):
+        base_type = type(self).base_type()
+        if len(args) == 0:
+            self.list = base_type()
+        if len(args) == 1:
+            target = args[0]
+            if type(target) is type(self):
+                self.list = copy(target.list)
+            elif type(target) is base_type:
+                self.list = copy(target)
+            elif type(target) in (tuple, set, frozenset):
+                self.list = base_type([*target])
+            elif type(target) in (dict, defaultdict, OrderedDict):
+                self.list = base_type([*sorted(target).values()])
+            elif hasattr(target, 'iterate'):
+                self.list = base_type([*target.iterate()])
+            elif hasattr(target, '__iter__'):
+                self.list = base_type([*target])
+            else:
+                self.list = base_type([target])
+        else:
+            self.list = base_type([*args])
     
+    def iterate(self):
+        yield from self.list
+    
+    @wraps(list.__len__)
+    def __len__(self):
+        return len(self.list)
+    
+    @wraps(list.__contains__)
+    def __contains__(self, value):
+        return value in self.list
+    
+    @wraps(list.__getitem__)
+    def __getitem__(self, idx):
+        return self.list[idx]
+    
+    @wraps(list.__setitem__)
     def __setitem__(self, idx, value):
         if value in (None, NOOp):
             value = NOOp()
-        super(ChannelFork, self).__setitem__(idx, value)
+        self.list[idx] = value
+    
+    @wraps(list.__delitem__)
+    def __delitem__(self, idx):
+        del self.list[idx]
+    
+    @wraps(list.index)
+    def index(self, value):
+        return self.list.index(value)
+    
+    @wraps(list.append)
+    def append(self, value):
+        self.list.append(value)
+    
+    @wraps(list.extend)
+    def extend(self, iterable):
+        self.list.extend(iterable)
+    
+    def pop(self, idx=-1):
+        """ Remove and return item at `idx` (default last).
+            Raises IndexError if list is empty or `idx` is out of range.
+            See list.pop(…) for details.
+        """
+        self.list.pop(idx)
+    
+    def last(self):
+        if not bool(self):
+            raise IndexError("pipe is empty")
+        return self.list[-1]
+    
+    def process(self, image):
+        for processor in self.iterate():
+            image = processor.process(image)
+        return image
+    
+    def __eq__(self, other):
+        if not isinstance(other, (type(self), type(self).base_type())):
+            return NotImplemented
+        return super(Pipe, self).__eq__(other)
+
+@export
+class BandFork(Fork):
+    
+    """ BandFork is a processor container -- a processor that applies other
+        processors. BandFork acts selectively on the individual bands of
+        input image data, either:
+        - applying a band-specific processor instance, or
+        - applying a default processor factory successively across all bands.
+        
+        BandFork’s interface is closely aligned with Python’s mutable-mapping
+        API‡ -- with which most programmers are no doubt quite familiar:
+        
+        • Ex. 1: apply Atkinson dithering to each of an RGB images’ bands:
+        >>> from instakit.utils.pipeline import BandFork
+        >>> from instakit.processors.halftone import Atkinson
+        >>> BandFork(Atkinson).process(my_image)
+        
+        • Ex. 2: apply Atkinson dithering to only the green band:
+        >>> from instakit.utils.pipeline import BandFork
+        >>> from instakit.processors.halftone import Atkinson
+        >>> bfork = BandFork(None)
+        >>> bfork['G'] = Atkinson()
+        >>> bfork.process(my_image)
+        
+        BandFork inherits from `instakit.abc.Fork`, which itself is not just
+        an Instakit Processor. The Fork ABC implements the required methods
+        of an Instakit Processor Container†, through which it furnishes an
+        interface to individual bands -- also generally known as channels,
+        per the language of the relevant Photoshop UI elements -- of image
+        data. 
+        
+        † q.v. the `instakit.abc` module source code supra.
+        ‡ q.v. the `collections.abc` module, and the `MutableMapping`
+                    abstract base class within, supra.
+    """
+    __slots__ = tuplize('mode_t')
+    
+    def __init__(self, processor_factory, *args, **kwargs):
+        """ Initialize a BandFork instance, using the given callable value
+            for `processor_factory` and any band-appropriate keyword-arguments,
+            e.g. `(R=MyProcessor, G=MyOtherProcessor, B=None)`
+        """
+        # Call `super(…)`, passing `processor_factory`:
+        super(BandFork, self).__init__(processor_factory, *args, **kwargs)
+        
+        # Reset `self.mode_t` if a new mode was specified --
+        # N.B. we can’t use the “self.mode” property during “__init__(…)”:
+        self.mode_t = kwargs.pop('mode', Mode.RGB)
     
     @property
     def mode(self):
-        return self.channels.to_string()
+        return self.mode_t
     
     @mode.setter
-    def mode(self, mode_string):
-        self._set_mode(mode_string)
+    def mode(self, value):
+        if value is None:
+            return
+        if type(value) in string_types:
+            value = Mode.for_string(value)
+        if Mode.is_mode(value):
+            # if value is not self.mode_t:
+            self.set_mode_t(value)
+        else:
+            raise TypeError("invalid mode type: %s (%s)" % (type(value), value))
     
-    def _set_mode(self, mode_string):
-        self.channels = Mode.for_string(mode_string)
+    def set_mode_t(self, value):
+        self.mode_t = value # DOUBLE SHADOW!!
     
-    def compose(self, *channels):
-        return self.channels.merge(*channels)
+    @property
+    def band_labels(self):
+        return self.mode.bands
+    
+    def iterate(self):
+        yield from (self[band_label] for band_label in self.band_labels)
+    
+    def split(self, image):
+        return self.mode.process(image).split()
+    
+    def compose(self, *bands):
+        return self.mode.merge(*bands)
     
     def process(self, image):
-        if not self.channels.check(image):
-            image = self.channels.process(image)
-        
-        processed_channels = []
-        for idx, channel in enumerate(image.split()):
-            processed_channels.append(
-                self[self.channels.bands[idx]].process(channel))
-        
-        return self.compose(*processed_channels)
+        processed = []
+        for processor, band in zip(self.iterate(),
+                                   self.split(image)):
+            processed.append(processor.process(band))
+        return self.compose(*processed)
+
+ChannelFork = BandFork
 
 ink_values = (
     (255, 255, 255),    # White
@@ -100,7 +273,7 @@ ink_values = (
     (0,   0,   255),    # Blue
 )
 
-class Ink(Enum):
+class Ink(AliasingEnum):
     
     def rgb(self):
         return ink_values[self.value]
@@ -114,15 +287,16 @@ class Ink(Enum):
 @unique
 class CMYKInk(Ink):
     
-    WHITE = 0
-    CYAN = 1
-    MAGENTA = 2
-    YELLOW = 3
-    KEY = 4
+    WHITE       = 0
+    CYAN        = 1
+    MAGENTA     = 2
+    YELLOW      = 3
+    KEY         = 4
+    BLACK       = alias(KEY)
     
     @classmethod
     def CMYK(cls):
-        return (cls.CYAN, cls.MAGENTA, cls.YELLOW, cls.KEY)
+        return (cls.CYAN, cls.MAGENTA, cls.YELLOW, cls.BLACK)
     
     @classmethod
     def CMY(cls):
@@ -131,11 +305,12 @@ class CMYKInk(Ink):
 @unique
 class RGBInk(Ink):
     
-    WHITE = 0
-    RED = 5
-    GREEN = 6
-    BLUE = 7
-    KEY = 4
+    WHITE       = 0
+    RED         = 5
+    GREEN       = 6
+    BLUE        = 7
+    KEY         = 4
+    BLACK       = alias(KEY)
     
     @classmethod
     def RGB(cls):
@@ -145,50 +320,109 @@ class RGBInk(Ink):
     def BGR(cls):
         return (cls.BLUE, cls.GREEN, cls.RED)
 
-class ChannelOverprinter(ChannelFork):
-    """ A ChannelFork subclass that rebuilds its output image using
-        multiply-mode to simulate CMYK overprinting effects.
+@export
+class OverprintFork(BandFork):
+    
+    """ A BandFork subclass that rebuilds its output image using multiply-mode
+        to simulate CMYK overprinting effects.
+        
+        N.B. While this Fork-based processor operates strictly in CMYK mode,
+        the composite image it eventually returns will be in RGB mode. This is
+        because the CMYK channels are each individually converted to colorized
+        representations in order to simulate monotone ink preparations; the
+        final compositing operation, in which these colorized channel separation
+        images are combined with multiply-mode, is also computed using the RGB
+        color model -- q.v. the CMYKInk enum processor supra. and the related
+        PIL/Pillow module function `ImageOps.colorize(…)` supra.
     """
-    default_mode = 'CMYK'
+    __slots__ = ('contrast', 'basicgcr')
     
-    def _set_mode(self, mode_string):
-        if mode_string != self.default_mode: # CMYK
+    inks = CMYKInk.CMYK()
+    
+    def __init__(self, processor_factory, gcr=20, *args, **kwargs):
+        """ Initialize an OverprintFork instance with the given callable value
+            for `processor_factory` and any band-appropriate keyword-arguments,
+            e.g. `(C=MyProcessor, M=MyOtherProcessor, Y=MyProcessor, K=None)`
+        """
+        # Store BasicGCR and AutoContrast processors:
+        self.contrast = AutoContrast()
+        self.basicgcr = BasicGCR(percentage=gcr)
+        
+        # Call `super(…)`, passing `processor_factory`:
+        super(OverprintFork, self).__init__(processor_factory, *args, mode=Mode.CMYK,
+                                                              **kwargs)
+        
+        # Make each band-processor a Pipeline() ending in
+        # the channel-appropriate CMYKInk enum processor:
+        self.apply_CMYK_inks()
+    
+    def apply_CMYK_inks(self):
+        """ This method ensures that each bands’ processor is set up
+            as a Pipe() or Pipeline() ending in a CMYKInk corresponding
+            to the band in question. Calling it multiple times *should*
+            be idempotent (but don’t quote me on that)
+        """
+        for band_label, ink in zip(self.band_labels,
+                              type(self).inks):
+            processor = self[band_label]
+            if processor is None:
+                self[band_label] = Pipe(ink)
+            elif hasattr(processor, 'append'):
+                if processor[-1] is not ink:
+                    processor.append(ink)
+                    self[band_label] = processor
+            elif hasattr(processor, 'last'):
+                if processor.last() is not ink:
+                    self[band_label] = Pipe(*processor.iterate(), ink)
+            else:
+                self[band_label] = Pipe(processor, ink)
+    
+    def set_mode_t(self, value):
+        """ Raise an exception if an attempt is made to set the mode to anything
+            other than CMYK
+        """
+        if value is not Mode.CMYK:
             raise AttributeError(
-                "ChannelOverprinter can operate in %s mode only" %
-                    self.default_mode) # CMYK
+                "OverprintFork only works in %s mode" % Mode.CMYK.to_string())
     
-    def compose(self, *channels):
-        return reduce(ImageChops.multiply, channels)
+    def update(self, iterable=None, **kwargs):
+        """ OverprintFork.update(…) re-applies CMYK ink processors to the
+            updated processing dataflow
+        """
+        super(OverprintFork, self).update(iterable, **kwargs)
+        self.apply_CMYK_inks()
     
-    def process(self, image):
-        # Compile the standard CMYK ink values as a dict of processing ops,
-        # keyed with the letter of their channel name (e.g. C, M, Y, and K):
-        inks = zip(self.default_mode, # CMYK
-                  [CMYKInk(ink_label) for ink_label in CMYKInk.CMYK()])
-        
-        # Manually two-phase allocate/initialize a ChannelFork “clone” instance
-        # to run the ChannelOverprinter CMYK composition processing operations:
-        # clone = super(ChannelOverprinter, self).__new__(self.default_factory,
-        #                                                 mode=self.channels.mode)
-        # clone.__init__(self.default_factory,
-        #                mode=self.channels.mode)
-        clone = super(ChannelOverprinter, self).__new__(type(self).__mro__[1],
-                                                             self.default_factory)
-        clone.__init__(self.default_factory)
-        
-        # Create a pipeline for each of the overprinters’ CMYK channel operations,
-        # and install the pipeline in the newly created “clone” ChannelFork:
-        for channel_name, ink in inks:
-            # For each channel, first run the prescribed operations;
-            # and afterward, colorize the output (as per a duotone image) using
-            # the CMYK ink as the colorization value:
-            clone[channel_name] = Pipe([self[channel_name], ink])
-        
-        # Delegate processing to the “clone” instance:
-        return clone.process(image)
+    def split(self, image):
+        """ OverprintFork.split(image) uses imagekit.utils.gcr.BasicGCR(…) to perform
+            gray-component replacement in CMYK-mode images; for more information,
+            see the imagekit.utils.gcr module
+        """
+        return self.basicgcr.process(image).split()
+    
+    def compose(self, *bands):
+        """ OverprintFork.compose(…) uses PIL.ImageChops.multiply() to create
+            the final composite image output
+        """
+        return Σ(ImageChops.multiply, bands)
 
+class Grid(Fork):
+    pass
 
-if __name__ == '__main__':
+class Sequence(Fork):
+    pass
+
+ChannelOverprinter = OverprintFork
+
+export(ChannelFork,         name='ChannelFork')
+export(ChannelOverprinter,  name='ChannelOverprinter')
+export(CMYKInk,             name='CMYKInk',         doc="CMYKInk → Enumeration class furnishing CMYK primitive triple values")
+export(RGBInk,              name='RGBInk',          doc="RGBInk → Enumeration class furnishing RGB primitive triple values")
+
+# Assign the modules’ `__all__` and `__dir__` using the exporter:
+__all__, __dir__ = exporter.all_and_dir()
+
+def test():
+    from pprint import pprint
     from instakit.utils.static import asset
     from instakit.processors.halftone import Atkinson
     
@@ -200,26 +434,26 @@ if __name__ == '__main__':
             image_paths))
     
     for image_input in image_inputs[:2]:
-        #ChannelOverprinter(Atkinson).process(image_input).show()
+        OverprintFork(Atkinson).process(image_input).show()
         
-        print('Creating ChannelOverprinter and ChannelFork with Atkinson ditherer...')
-        overatkins = ChannelOverprinter(Atkinson)
-        forkatkins = ChannelFork(Atkinson)
+        print('Creating OverprintFork and BandFork with Atkinson ditherer...')
+        overatkins = OverprintFork(Atkinson)
+        forkatkins = BandFork(Atkinson)
         
-        print('Processing image with ChannelForked Atkinson in default (RGB) mode...')
+        print('Processing image with BandForked Atkinson in default (RGB) mode...')
         forkatkins.process(image_input).show()
         forkatkins.mode = 'CMYK'
-        print('Processing image with ChannelForked Atkinson in CMYK mode...')
+        print('Processing image with BandForked Atkinson in CMYK mode...')
         forkatkins.process(image_input).show()
         forkatkins.mode = 'RGB'
-        print('Processing image with ChannelForked Atkinson in RGB mode...')
+        print('Processing image with BandForked Atkinson in RGB mode...')
         forkatkins.process(image_input).show()
         
         overatkins.mode = 'CMYK'
-        print('Processing image with ChannelOverprinter-ized Atkinson in CMYK mode...')
+        print('Processing image with OverprintFork-ized Atkinson in CMYK mode...')
         overatkins.process(image_input).show()
         
-        print('Attempting to reset ChannelOverprinter to RGB mode...')
+        print('Attempting to reset OverprintFork to RGB mode...')
         import traceback, sys
         try:
             overatkins.mode = 'RGB'
@@ -230,5 +464,10 @@ if __name__ == '__main__':
             print("<<<<<<<<<<<<<<<<<<<<< KCABECART >>>>>>>>>>>>>>>>>>>>>")
             print('')
     
-    print(image_paths)
+    bandfork = BandFork(None)
+    pprint(bandfork)
     
+    print(image_paths)
+
+if __name__ == '__main__':
+    test()

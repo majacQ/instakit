@@ -8,11 +8,30 @@ import importlib
 import inspect
 import types
 
+from pprint import pprint
+
 class Parameter(object):
     """ A placeholder object, used for the moment in the inline tests """
     pass
 
 QUALIFIER = '.'
+
+def dotpath_join(base, *addenda):
+    """ Join dotpath elements together as one, á la os.path.join(…) """
+    for addendum in addenda:
+        if not base.endswith(QUALIFIER):
+            base += QUALIFIER
+        if addendum.startswith(QUALIFIER):
+            if len(addendum) == 1:
+                raise ValueError('operand too short: %s' % addendum)
+            addendum = addendum[1:]
+        base += addendum
+    # N.B. this might be overthinking it -- 
+    # maybe we *want* to allow dotpaths
+    # that happen to start and/or end with dots?
+    if base.endswith(QUALIFIER):
+        return base[:-1]
+    return base
 
 def qualified_import(qualified):
     """ Import a qualified thing-name.
@@ -48,8 +67,8 @@ def qualified_name(cls):
 
 class Nothing(object):
     """ Placeholder singleton, signifying nothing """
-    # __class__ = type('Nothing', tuple(), {})
-    def __new__(cls):
+    __slots__ = tuple()
+    def __new__(cls, *a, **k):
         return Nothing
 
 def check_parameter_default(param_default):
@@ -219,10 +238,14 @@ def test():
                                 percent=150,
                                 threshold=3)
     
-    curveset = 'instakit.processors.curves.CurveSet'
+    curves = 'instakit.processors.curves'
+    curveset = dotpath_join(curves, 'CurveSet')
+    interpolate_mode = dotpath_join(curves, 'InterpolateMode')
+    ImportedInterpolateMode = qualified_import(interpolate_mode)
     default_args = default_arguments(qualified_import(curveset))
+    LAGRANGE = ImportedInterpolateMode.LAGRANGE
     assert default_args == dict(path=Nothing,
-                                interpolation_mode=None)
+                                interpolation_mode=LAGRANGE)
     
     print("Success!")
     print()
@@ -230,6 +253,7 @@ def test():
     # Test “is_enum()”:
     print("Testing “is_enum()”…")
     
+    assert is_enum(ImportedInterpolateMode)
     assert not is_enum(Parameter)
     assert not is_enum(ImportedFloydSteinberg)
     assert not is_enum(ImportedAtkinson)
@@ -248,7 +272,6 @@ def test():
     
     # Test “add_argparser()”:
     print("Testing “add_argparser()”…")
-    from pprint import pprint
     
     parser = argparse.ArgumentParser(prog='instaprocess',
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -259,7 +282,7 @@ def test():
     
     processor_names = ('adjust', 'blur', 'curves', 'halftone', 'noise', 'squarecrop')
     utility_names = ('colortype', 'gcr', 'kernels', 'lutmap',
-                     'misc', 'mode', 'ndarrays', 'pipeline', 'stats')
+                     'misc', 'mode', 'ndarrays', 'pipeline', 'static', 'stats')
     
     module_names = []
     module_names.extend(['instakit.processors.%s' % name for name in processor_names])
@@ -281,9 +304,9 @@ def test():
     ns = parser.parse_args(['-h'])
     print(ns)
     
-    # print()
-    # ns = parser.parse_args(['instakit.utils.mode.Mode', '--help'])
-    # print(ns)
+    print()
+    ns = parser.parse_args(['instakit.utils.mode.Mode', '--help'])
+    print(ns)
     
     print("Success!")
     print()

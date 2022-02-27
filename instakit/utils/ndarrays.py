@@ -19,11 +19,17 @@ from __future__ import division, print_function
 
 import numpy
 from instakit.utils.mode import Mode
+from instakit.abc import NDProcessorBase
+from instakit.exporting import Exporter
+
+exporter = Exporter(path=__file__)
+export = exporter.decorator()
 
 uint8_t = numpy.uint8
 uint32_t = numpy.uint32
 float32_t = numpy.float32
 
+@export
 def bytescale(data, cmin=None, cmax=None,
                     high=255,  low=0):
     """
@@ -79,6 +85,7 @@ def bytescale(data, cmin=None, cmax=None,
     bytedata = (data - cmin) * scale + low
     return (bytedata.clip(low, high) + 0.5).astype(uint8_t)
 
+@export
 def fromimage(image, flatten=False,
                         mode=None,
                        dtype=None):
@@ -108,7 +115,7 @@ def fromimage(image, flatten=False,
     from PIL import Image
     
     if not Image.isImageType(image):
-        raise TypeError("Input is not a PIL image (got %s)" % repr(image))
+        raise TypeError(f"Input is not a PIL image (got {image!r})")
     
     if mode is not None:
         if not Mode.is_mode(mode):
@@ -144,6 +151,7 @@ def fromimage(image, flatten=False,
 
 _errstr = "Mode unknown or incompatible with input array shape"
 
+@export
 def toimage(array,  high=255,    low=0,
                     cmin=None,  cmax=None,
                      pal=None,
@@ -249,13 +257,13 @@ def toimage(array,  high=255,    low=0,
                 ca = ca[0]
             else:
                 raise ValueError(
-                    "Could not find a channel dimension (shape = %s)" % pformat(shape))
+                    f"Could not find a channel dimension (shape = {pformat(shape)})")
     else:
         ca = channel_axis
     
     numch = shape[ca]
     if numch not in [3, 4]:
-        raise ValueError("Channel dimension invalid (#channels = %s)" % numch)
+        raise ValueError(f"Channel dimension invalid (#channels = {numch})")
     
     bytedata = bytescale(data, high=high,
                                low=low,
@@ -283,25 +291,24 @@ def toimage(array,  high=255,    low=0,
     
     if mode in [ Mode.RGB, Mode.YCbCr ]:
         if numch != 3:
-            raise ValueError("Invalid shape for mode “%s”: %s" % (
-                              mode, pformat(shape)))
+            raise ValueError(f"Invalid shape for mode “{mode}”: {pformat(shape)}")
     if mode in [ Mode.RGBA, Mode.CMYK ]:
         if numch != 4:
-            raise ValueError("Invalid shape for mode “%s”: %s" % (
-                              mode, pformat(shape)))
+            raise ValueError(f"Invalid shape for mode “{mode}”: {pformat(shape)}")
     
     # Here we know both `strdata` and `mode` are correct:
     image = mode.frombytes(shape, strdata)
     return image
 
-
-class NDProcessor(object):
+@export
+class NDProcessor(NDProcessorBase):
     
     """ An image processor ancestor class that represents PIL image
         data in a `numpy.ndarray`. Subclasses can override the
         `process_nd(…)` method to receive, transform, and return
         the image data using NumPy, SciPy, and the like.
     """
+    __slots__ = tuple()
     
     def process(self, image):
         """ NDProcessor.process(…) converts its PIL image operand
@@ -311,13 +318,6 @@ class NDProcessor(object):
             finally returning it.
         """
         return toimage(self.process_nd(fromimage(image)))
-    
-    def process_nd(self, ndimage):
-        """ Override NDProcessor.process_nd(…) in subclasses
-            to provide functionality that acts on image data stored
-            in a `numpy.ndarray`.
-        """
-        return ndimage
     
     @staticmethod
     def compand(ndimage):
@@ -335,6 +335,8 @@ class NDProcessor(object):
         """
         return float32_t(ndimage) / 255.0
 
+# Assign the modules’ `__all__` and `__dir__` using the exporter:
+__all__, __dir__ = exporter.all_and_dir()
 
 def test():
     """ Tests for bytescale(¬) adapted from `scipy.misc.pilutil` doctests,

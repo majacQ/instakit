@@ -8,7 +8,8 @@ Copyright (c) 2012 Objects In Space And Time, LLC. All rights reserved.
 """
 from __future__ import print_function
 
-import numpy, imread
+import numpy
+import imread
 from os.path import join
 from collections import defaultdict
 
@@ -87,7 +88,6 @@ class RGBTable(defaultdict):
             data = self.identity
         return (channel/255.0 for channel in self.color_at(x, y, data=data))
 
-
 class LUT(RGBTable):
     
     def __init__(self, name='identity'):
@@ -100,7 +100,6 @@ class LUT(RGBTable):
         print("Reading LUT image: %s" % static.path(join('lut', '%s.png' % name)))
         return imread.imread(
             static.path(join('lut', '%s.png' % name)))
-
 
 def main():
 
@@ -133,7 +132,6 @@ def main():
     print(amatorka[RGB(146,146,36)])
     print(identity[RGB(22,33,44)])
     print(identity[RGB(255, 25, 25)])
-    
 
 def blurthday():
     
@@ -159,7 +157,6 @@ def blurthday():
     imfuckingshowalready(im9)
     print(im1)
     print(im2)
-
 
 def old_maid():
     pass
@@ -200,8 +197,6 @@ def old_main():
     #print(im_identity)
     print("")
     
-    
-    
     print("THE END: %s" % bool(im_old_identity.shape == im_identity.shape))
     #print(im_old_identity == im_identity)
     
@@ -216,11 +211,5 @@ def old_main():
     pil_im_identity.save('/tmp/im_identity.jpg',
         format="JPEG")
 
-
-
-
 if __name__ == '__main__':
     main()
-
-
-

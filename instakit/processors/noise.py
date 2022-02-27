@@ -11,7 +11,6 @@ from enum import Enum, unique
 
 from instakit.utils.ndarrays import NDProcessor
 
-
 @unique
 class NoiseMode(Enum):
     
@@ -83,7 +82,6 @@ class SpeckleNoise(Noise):
            (where `n` is uniform noise with specified mean + variance)
     """
     mode = NoiseMode.SPECKLE
-
 
 def test():
     from instakit.utils.static import asset

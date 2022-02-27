@@ -1,12 +1,12 @@
--r install.txt
+-r tox.txt
+PyYAML
+bpython
 bumpversion
 flake8
 flake8-bugbear
-flake8-pyi
-pyre-check
-pywatchman
-setuptools
+ipython
+jupyter
+pythonpy
 twine
-typeshed
-typing
-pytest
+xerox
+yolk1977

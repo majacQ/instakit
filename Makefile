@@ -8,8 +8,10 @@ rebuild: distclean cython
 dist: rebuild sdist twine-upload
 
 upload: bump dist
+	git push
 
 bigupload: bigbump dist
+	git push
 
 clean-pyc:
 	find . -name \*.pyc -print -delete
@@ -27,7 +29,7 @@ sdist:
 	python setup.py sdist
 
 twine-upload:
-	twine upload -s --repository-url=https://upload.pypi.org/legacy/ dist/*
+	twine upload -s dist/*
 
 bump:
 	bumpversion --verbose patch

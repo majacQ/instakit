@@ -3,15 +3,21 @@
 from __future__ import print_function
 import os
 
+from instakit.exporting import Exporter
+
+exporter = Exporter(path=__file__)
+export = exporter.decorator()
+
 projectdir = os.path.join(os.path.dirname(__file__), '..', '..')
 namespaces = set()
 
+@export
 def static_namespace(name):
-    """ Configure and return an instakit.utils.misc.Namespace instance,
+    """ Configure and return a clu.typespace.namespace.Namespace instance,
         festooning it with shortcuts allowing for accesing static files
         within subdirectories of the Instakit project package tree.
     """
-    from instakit.utils.misc import Namespace
+    from clu.typespace.namespace import SimpleNamespace as Namespace
     ns = Namespace()
     ns.name = str(name)
     ns.root = os.path.join(projectdir, ns.name)
@@ -25,12 +31,13 @@ def static_namespace(name):
 asset = static_namespace('instakit')
 tests = static_namespace('tests')
 
-__all__ = ('projectdir',
-           'namespaces',
-           'static_namespace',
-           'asset', 'tests')
+export(projectdir,      name='projectdir')
+export(namespaces,      name='namespaces')
+export(asset,           name='asset',       doc="asset → static namespace relative to the Instakit package assets")
+export(tests,           name='tests',       doc="tests → static namespace relative to the Instakit testing assets")
 
-__dir__ = lambda: list(__all__)
+# Assign the modules’ `__all__` and `__dir__` using the exporter:
+__all__, __dir__ = exporter.all_and_dir()
 
 def test():
     assert os.path.isdir(projectdir)

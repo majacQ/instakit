@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-#
+#    
 #    INSTAKIT -- Instagrammy image-processors and tools, based on Pillow and SciPy
-#
-#    Copyright © 2012-2025 Alexander Bohn
-#
+#    
+#    Copyright © 2012-2025 Alexander Böhn
+#    
 #    Permission is hereby granted, free of charge, to any person obtaining a copy 
 #    of this software and associated documentation files (the "Software"), to deal 
 #    in the Software without restriction, including without limitation the rights 
@@ -28,8 +28,18 @@
 from __future__ import print_function
 import os, sys, sysconfig
 
-from psutil import cpu_count
-from setuptools import setup
+try:
+    from os import cpu_count
+except ImportError:
+    try:
+        from multiprocessing import cpu_count
+    except ImportError:
+        try:
+            from psutil import cpu_count
+        except ImportError:
+            cpu_count = lambda: 1
+
+from setuptools import setup, find_packages
 from Cython.Build import cythonize
 
 # HOST PYTHON VERSION
@@ -63,23 +73,24 @@ KEYWORDS = ('django',
             'NumPy', 'SciPy', 'scikit-image')
 
 CPPLANGS = ('c++', 'cxx', 'cpp', 'cc', 'mm')
+CPPVERSION = PYTHON_VERSION < 3 and 'c++14' or 'c++17'
 
 # PROJECT DIRECTORY
 CWD = os.path.dirname(__file__)
 BASE_PATH = os.path.join(
             os.path.abspath(CWD), PROJECT_NAME)
 
-def project_content(filename):
+def project_content(*filenames):
     import io
-    filepath = os.path.join(CWD, filename)
+    filepath = os.path.join(CWD, *filenames)
     if not os.path.isfile(filepath):
         raise IOError("""File %s doesn't exist""" % filepath)
     out = ''
     with io.open(filepath, 'r') as handle:
         out += handle.read()
     if not out:
-        raise ValueError("""File %s couldn't be read""" % filename)
-    return out
+        raise ValueError("""File %s couldn't be read""" % os.path.sep.join(filenames))
+    return out.strip()
 
 # CYTHON & C-API EXTENSION MODULES
 def cython_module(*args, **kwargs):
@@ -99,7 +110,7 @@ def cython_module(*args, **kwargs):
                           '-funroll-loops',
                           '-mtune=native']
     if language in CPPLANGS:
-        extra_compile_args.extend(['-std=c++17',
+        extra_compile_args.extend(['-std=%s' % CPPVERSION,
                                    '-stdlib=libc++',
                                    '-Wno-sign-compare',
                                    '-Wno-unused-private-field'])
@@ -125,39 +136,34 @@ def additional_source(*args):
 __version__ = "<undefined>"
 try:
     exec(compile(
-        open(os.path.join(CWD,
+        open(os.path.join(BASE_PATH,
             '__version__.py')).read(),
             '__version__.py', 'exec'))
 except:
-    __version__ = '0.6.6'
+    print("ERROR COMPILING __version__.py")
+    __version__ = '0.8.10'
 
 # PROJECT DESCRIPTION
 LONG_DESCRIPTION = project_content('ABOUT.md')
 
 # SOFTWARE LICENSE
-LICENSE = project_content('LICENSE.txt')
+LICENSE = 'MIT'
 
 # REQUIRED INSTALLATION DEPENDENCIES
-INSTALL_REQUIRES = [
-    'Cython>=0.29.0',
-    'Pillow>=3.0.0',
-    'numpy>=1.7.0',
-    'scipy>=1.1.0',
-    'scikit-image>=0.12.0']
-
-if PYTHON_VERSION < 3.4:
-    INSTALL_REQUIRES.append('enum34>=1.1.0')
+INSTALL_REQUIRES = project_content('requirements', 'install.txt').splitlines()
 
 # PYPI PROJECT CLASSIFIERS
 CLASSIFIERS = [
     'Development Status :: 5 - Production/Stable',
     'License :: OSI Approved :: MIT License',
+    'Intended Audience :: Developers',
     'Operating System :: MacOS',
     'Operating System :: Microsoft :: Windows',
     'Operating System :: OS Independent',
     'Operating System :: POSIX',
     'Operating System :: Unix',
-    'Programming Language :: Python :: 2.7',
+    'Programming Language :: Python',
+    'Programming Language :: Python :: 3',
     'Programming Language :: Python :: 3.5',
     'Programming Language :: Python :: 3.6',
     'Programming Language :: Python :: 3.7']
@@ -170,44 +176,6 @@ except ImportError:
         def get_include(self):
             return os.path.curdir
     numpy = FakeNumpy()
-
-# SETUPTOOLS: FIND SUBORDINATE PACKAGES
-try:
-    from setuptools import find_packages
-
-except ImportError:
-    def is_package(path):
-        return (os.path.isdir(path) and \
-                os.path.isfile(
-                os.path.join(path, '__init__.py')))
-    
-    def find_packages(path, base=""):
-        """ Find all packages in path; see also:
-            http://wiki.python.org/moin/Distutils/Cookbook/AutoPackageDiscovery
-        """
-        packages = {}
-        for item in os.listdir(path):
-            pth = os.path.join(path, item)
-            if is_package(pth):
-                if base:
-                    module_name = "%(base)s.%(item)s" % dict(base=base, item=item)
-                else:
-                    module_name = item
-                packages[module_name] = pth
-                packages.update(
-                    find_packages(pth, module_name))
-        return packages
-
-# SETUPTOOLS: CLEAN BUILD ARTIFACTS
-if 'sdist' in sys.argv:
-    import subprocess
-    finder = "/usr/bin/find %s \( -iname \*.pyc -or -iname .ds_store \) -print -delete"
-    theplace = os.getcwd()
-    if theplace not in (os.path.sep, os.path.curdir):
-        print("+ Deleting crapola from %s..." % theplace)
-        print("$ %s" % finder % theplace)
-        output = subprocess.getoutput(finder % theplace)
-        print(output)
 
 # SOURCES & INCLUDE DIRECTORIES
 hsluv_source = additional_source('utils', 'ext', 'hsluv.c')
@@ -222,7 +190,7 @@ setup(
     author_email=AUTHOR_EMAIL,
     
     version=__version__,
-    description=__doc__,
+    description=__doc__.strip(),
     long_description=LONG_DESCRIPTION,
     long_description_content_type="text/markdown",
     
